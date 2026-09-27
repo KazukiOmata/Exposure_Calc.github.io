@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>露出差計算</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#000; --surf:#111214; --surf2:#1C1D20; --line:#2A2B2F;
+  --text:#F4F4F1; --sub:#9B9CA1; --dim:#55565B;
+  --accent:#FFD60A; --pos:#FF9A3C; --neg:#5AA9FF; --rec:#FF453A; --edge:#3A3B41;
+  --font:"Manrope","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+.app{
+  max-width:1080px;margin:0 auto;
+  padding:14px 14px calc(96px + env(safe-area-inset-bottom));
+  display:grid;gap:14px;grid-template-areas:"head" "meter" "inputs" "details";
+}
+.head{grid-area:head;display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:2px 4px 0}
+.head h1{white-space:nowrap;font-size:19px;font-weight:700;margin:0;letter-spacing:-.01em}
+.head p{margin:0;color:var(--sub);font-size:13px;text-align:right}
+
+/* ============ meter ============ */
+.side{display:contents}
+.meter{
+  grid-area:meter;position:sticky;top:8px;z-index:5;
+  background:var(--bg);border:1px solid var(--line);border-radius:22px;padding:14px 16px 12px;
+  box-shadow:0 0 0 6px var(--bg);
+}
+.meter.flash{animation:flash .5s ease-out}
+@keyframes flash{0%{border-color:var(--rec);box-shadow:0 0 0 6px var(--bg),0 0 0 7px var(--rec)}100%{}}
+.status{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;font-weight:600;min-height:22px}
+#state{color:var(--text)}
+.basechip{display:inline-flex;align-items:center;gap:6px;color:var(--sub);font-weight:600;font-size:12px;white-space:nowrap}
+.basechip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dim)}
+.basechip.on{color:var(--text)}
+.basechip.on::before{background:var(--rec)}
+
+.read{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:10px;margin:10px 0 12px}
+.rd{display:flex;flex-direction:column;justify-content:space-between;min-width:0;border-radius:16px;padding:9px 12px 10px}
+.rl{font-size:12px;font-weight:600;line-height:1.2}
+.rv{font-weight:700;font-size:clamp(28px,8.4vw,46px);line-height:1;letter-spacing:-.03em;margin-top:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ru{font-size:13px;font-weight:600;margin-left:3px;letter-spacing:0}
+.rfoot{font-size:12px;font-weight:600;margin-top:5px;font-variant-numeric:tabular-nums}
+.rd.precise{background:var(--surf);}
+.rd.precise .rv{color:var(--accent)}
+.rd.precise .rl,.rd.precise .rfoot{color:var(--sub)}
+.rd.third{background:var(--text);color:#000}
+.rd.third .rl,.rd.third .rfoot{color:#55565B}
+.rd.idle .rv{opacity:.28}
+.rd.third.idle{background:var(--surf2);color:var(--text)}
+.rd.third.idle .rl,.rd.third.idle .rfoot{color:var(--sub)}
+
+/* level indicator */
+.level{position:relative;padding:12px 14px 0}
+.lv-row{display:flex;gap:3px;align-items:flex-end;height:18px}
+.lv{flex:1;height:9px;border-radius:2px;background:var(--surf2);transition:background-color .15s}
+.lv.major{height:14px}
+.lv.zero{height:18px;background:var(--sub)}
+.lv.on.pos{background:var(--pos)} .lv.on.neg{background:var(--neg)}
+.marker{position:absolute;top:0;width:0;height:0;margin-left:-6px;border:6px solid transparent;border-top:8px solid var(--accent);border-bottom:0;transition:left .25s cubic-bezier(.3,.7,.3,1)}
+.marker.hidden{visibility:hidden}
+.lv-nums{position:relative;height:18px;margin-top:4px;font-size:11px;font-weight:700;color:var(--sub);font-variant-numeric:tabular-nums}
+.lv-nums span{position:absolute;transform:translateX(-50%)}
+.over{position:absolute;top:12px;font-size:12px;line-height:14px;color:var(--dim)}
+.over.l{left:0} .over.r{right:0}
+.over.show{color:var(--text);animation:blink 1s steps(2,start) infinite}
+@keyframes blink{to{visibility:hidden}}
+
+.baseline{display:flex;gap:4px 14px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--sub);font-variant-numeric:tabular-nums}
+.baseline b{color:var(--text);font-weight:600}
+
+/* ============ inputs ============ */
+.panel{background:var(--surf);border-radius:22px}
+.inputs{grid-area:inputs;padding:6px 0}
+.field{padding:12px 16px}
+.group{border-top:1px solid var(--line);padding-top:4px}
+.group + .field,.field + .field{border-top:1px solid var(--line)}
+.grouphead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px 0}
+.grouphead h2{font-size:15px;font-weight:700;margin:0}
+.group .field{padding-top:10px}
+.flabel{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px;font-weight:600;color:var(--sub);margin:0 0 8px}
+.inputs > .field:first-child .flabel{color:var(--text);font-size:15px;font-weight:700}
+.solo .flabel{color:var(--text);font-size:15px;font-weight:700}
+
+.ctrl{display:grid;grid-template-columns:46px minmax(0,1fr) 46px;gap:10px;align-items:center}
+.step{
+  width:46px;height:46px;border-radius:50%;border:0;background:var(--surf2);color:var(--text);
+  font-size:22px;font-weight:500;line-height:1;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
+.step:active{background:var(--text);color:#000}
+.valbox{
+  position:relative;display:flex;align-items:center;height:54px;cursor:text;
+  background:var(--surf2);border:1px solid var(--edge);border-radius:14px;
+  transition:background-color .12s,border-color .12s;
+}
+.valbox:hover{border-color:var(--dim)}
+.valbox:focus-within{background:var(--text);border-color:var(--text)}
+.edit-ic{flex:none;width:16px;height:16px;margin-left:13px;color:var(--sub);pointer-events:none}
+.unit{flex:none;margin-left:8px;font-size:15px;font-weight:700;color:var(--sub);pointer-events:none;min-width:0}
+.unit:empty{display:none}
+.valbox input{
+  flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--text);
+  font-weight:700;font-size:26px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+  text-align:center;padding:0 6px;-webkit-appearance:none;appearance:none;
+}
+.valbox input::placeholder{color:var(--dim);font-size:16px;font-weight:600;letter-spacing:0}
+.valbox input:focus{outline:none;color:#000;caret-color:#000}
+.valbox:focus-within .edit-ic,.valbox:focus-within .unit{color:#55565B}
+.pick{flex:none;position:relative;width:44px;height:100%;border-left:1px solid var(--edge);pointer-events:none}
+.pick::after{content:"";position:absolute;left:50%;top:50%;width:7px;height:7px;border:solid var(--sub);border-width:0 2px 2px 0;transform:translate(-50%,-70%) rotate(45deg)}
+.valbox:focus-within .pick{border-left-color:#C9C9C4}
+.valbox:focus-within .pick::after{border-color:#000}
+.valbox select{position:absolute;right:0;top:0;bottom:0;width:44px;opacity:0;cursor:pointer;font-size:16px}
+.valbox:has(select:focus-visible) .pick{outline:2px solid var(--text);border-radius:0 12px 12px 0}
+.hint{font-size:11.5px;font-weight:600;color:var(--dim);white-space:nowrap}
+.sub{margin:7px 2px 0;font-size:12.5px;color:var(--sub);line-height:1.45}
+.sub:empty{display:none}
+.sub.warn{color:var(--rec)}
+.field.bad .valbox{border-color:var(--rec);box-shadow:inset 0 0 0 1px var(--rec)}
+
+.seg{display:inline-flex;background:var(--surf2);border-radius:999px;padding:3px;gap:2px;flex-shrink:0}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;color:var(--sub);min-height:32px}
+.seg button[aria-pressed="true"]{background:var(--text);color:#000}
+
+/* ============ details ============ */
+.details{grid-area:details;padding:16px}
+.details h2{font-size:15px;font-weight:700;margin:0 0 10px}
+.details h2:not(:first-child){margin-top:22px}
+.empty{color:var(--sub);font-size:13.5px;margin:0}
+.drow{display:grid;grid-template-columns:4.8em minmax(0,1fr) auto;gap:2px 10px;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.drow:first-of-type{border-top:0;padding-top:0}
+.dname{font-weight:600;font-size:13px;color:var(--sub)}
+.dvals{font-weight:600;font-size:15px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.dd{font-weight:800;font-size:17px;text-align:right;min-width:3em;font-variant-numeric:tabular-nums}
+.dd.b,.fill.b{color:var(--pos)} .dd.d,.fill.d{color:var(--neg)}
+.dbar{grid-column:1/-1;position:relative;height:4px;background:var(--surf2);border-radius:2px;margin-top:8px}
+.dbar::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--dim);border-radius:1px}
+.fill{position:absolute;top:0;bottom:0;background:currentColor;border-radius:2px}
+.total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--sub);padding-top:10px;font-weight:700}
+.total .dd{font-size:20px}
+.crow{display:grid;grid-template-columns:4.8em minmax(0,1fr);gap:0 10px;padding:9px 0;border-top:1px solid var(--line);align-items:baseline}
+.crow:first-of-type{border-top:0;padding-top:0}
+.crow .cv{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums}
+.crow .cn{grid-column:2;font-size:12.5px;color:var(--sub)}
+.crow .cn.warn{color:var(--rec)}
+.about{margin-top:22px;border-top:1px solid var(--line);padding-top:12px;font-size:13px;color:var(--sub)}
+.about summary{cursor:pointer;color:var(--text);font-weight:600}
+.about p{margin:8px 0 0}
+
+/* ============ action bar ============ */
+.bar{
+  position:fixed;left:0;right:0;bottom:0;z-index:10;
+  background:rgba(0,0,0,.82);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+}
+.bar-inner{max-width:1080px;margin:0 auto;display:flex;gap:10px}
+.btn{height:54px;border:0;border-radius:16px;cursor:pointer;font-weight:700;touch-action:manipulation}
+.btn-set{flex:1.5;background:var(--rec);color:#fff;font-size:18px;letter-spacing:.18em}
+.btn-set:active{transform:scale(.985)}
+.btn-set:disabled{background:var(--surf2);color:var(--dim);cursor:default}
+.btn-back{flex:1;background:var(--surf2);color:var(--text);font-size:14px}
+.btn-back:disabled{color:var(--dim);cursor:default}
+
+@media (max-width:380px){
+  .ctrl{grid-template-columns:42px minmax(0,1fr) 42px;gap:8px}
+  .step{width:42px;height:42px}
+  .seg button{padding:6px 9px}
+  .head p{display:none}
+}
+@media (min-width:900px){
+  .app{grid-template-columns:minmax(0,1fr) 420px;column-gap:20px;grid-template-areas:"head head" "inputs side";align-items:start;padding-top:26px}
+  .side{display:block;grid-area:side;position:sticky;top:16px}
+  .meter{position:static}
+  .details{margin-top:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  .marker,.lv{transition:none}
+  .over.show,.meter.flash{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="head">
+    <h1>露出差計算</h1>
+    <p>SETした設定を基準に、変更後の露出差を表示</p>
+  </header>
+
+  <aside class="side">
+    <div class="meter" id="meter" aria-live="polite">
+      <div class="status">
+        <span id="state">基準未設定</span>
+        <span class="basechip" id="basechip">BASE</span>
+      </div>
+
+      <div class="read">
+        <div class="rd precise idle" id="rd-precise">
+          <span class="rl">露出差（精密）</span>
+          <span class="rv" id="rv-ev">––<span class="ru">EV</span></span>
+          <span class="rfoot" id="rf-ev">小数点2桁</span>
+        </div>
+        <div class="rd third idle" id="rd-third">
+          <span class="rl">1/3段（機材表示）</span>
+          <span class="rv" id="rv-third">––<span class="ru">段</span></span>
+          <span class="rfoot" id="rf-third">端数 ––</span>
+        </div>
+      </div>
+
+      <div class="level" aria-hidden="true">
+        <div class="marker hidden" id="marker"></div>
+        <span class="over l" id="ov-l">◀</span><span class="over r" id="ov-r">▶</span>
+        <div class="lv-row" id="lv-row"></div>
+        <div class="lv-nums" id="lv-nums"></div>
+      </div>
+
+      <div class="baseline" id="baseline">設定を入力して SET を押してください</div>
+    </div>
+
+    <section class="panel details" aria-label="計算結果">
+      <h2>変化の内訳</h2>
+      <div id="breakdown"><p class="empty">SET を押すと、基準からの変化をパラメーター別に表示します。</p></div>
+      <div id="compwrap" hidden>
+        <h2>基準の露出に戻すには</h2>
+        <div id="comp"></div>
+      </div>
+      <details class="about">
+        <summary>計算方法</summary>
+        <p>ISO とシャッター時間は値が2倍で +1段。絞りは F値が √2 倍で −1段。ND は 0.3 = 1段、ND2 = 1段として計算します。</p>
+        <p>角度指定のときのシャッター時間は「角度 ÷ 360 ÷ fps」。スピード指定のときは fps は露出に影響しません。</p>
+        <p>メーターの黄色い三角は精密な値、バーは1/3段に丸めた値を示します。</p>
+      </details>
+    </section>
+  </aside>
+
+  <section class="panel inputs" aria-label="現在の設定">
+    <div class="field solo" data-key="iso"></div>
+    <div class="group">
+      <div class="grouphead">
+        <h2>シャッター</h2>
+        <div class="seg" role="group" aria-label="シャッターの指定方法">
+          <button type="button" data-smode="speed" aria-pressed="true">スピード</button>
+          <button type="button" data-smode="angle" aria-pressed="false">角度</button>
+        </div>
+      </div>
+      <div class="field" data-key="ss"></div>
+      <div class="field" data-key="angle" hidden></div>
+    </div>
+    <div class="field solo" data-key="fps"></div>
+    <div class="field solo" data-key="f"></div>
+    <div class="group">
+      <div class="grouphead">
+        <h2>ND フィルター</h2>
+        <div class="seg" role="group" aria-label="NDの表記">
+          <button type="button" data-ndmode="density" aria-pressed="true">濃度</button>
+          <button type="button" data-ndmode="factor" aria-pressed="false">倍率</button>
+          <button type="button" data-ndmode="stops" aria-pressed="false">段数</button>
+        </div>
+      </div>
+      <div class="field" data-key="nd"></div>
+    </div>
+  </section>
+</div>
+
+<div class="bar">
+  <div class="bar-inner">
+    <button type="button" class="btn btn-back" id="btn-back" disabled>基準に戻す</button>
+    <button type="button" class="btn btn-set" id="btn-set">SET</button>
+  </div>
+</div>
+
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const trim = (v, d) => String(+(+v).toFixed(d));
+
+/* ---------- parsing & formatting ---------- */
+function clean(s){
+  return String(s).trim()
+    .replace(/[０-９．／]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/,/g, '');
+}
+function num(s){
+  s = clean(s).replace(/^(iso|nd|f|t)\s*/i, '').replace(/(°|度|fps|段)$/i, '').trim();
+  if (s === '') return NaN;
+  const v = Number(s);
+  return isFinite(v) ? v : NaN;
+}
+function parseShutter(s){
+  s = clean(s).toLowerCase().replace(/\s/g, '');
+  if (s.includes('/')) s = s.replace(/(s|秒|sec)$/, '');
+  let m = s.match(/^(\d*\.?\d+)\/(\d*\.?\d+)$/);
+  if (m) return +m[1] / +m[2];
+  m = s.match(/^(\d*\.?\d+)(s|sec|"|″|秒)$/);
+  if (m) return +m[1];
+  if (s === '') return NaN;
+  const n = Number(s);
+  if (!isFinite(n) || n <= 0) return NaN;
+  return n >= 1 ? 1 / n : n;   // 50 → 1/50秒、0.5 → 0.5秒
+}
+function fmtShutter(t){
+  if (!(t > 0)) return '—';
+  if (t >= 1) return trim(t, 1) + '"';
+  const d = 1 / t;
+  if (Math.abs(d - Math.round(d)) < 0.05 || d >= 100) return '1/' + Math.round(d);
+  return '1/' + trim(d, 1);
+}
+function stopsAbs(x){
+  const n = Math.round(Math.abs(x) * 3), w = Math.floor(n / 3), r = n % 3;
+  return ((w ? String(w) : '') + ['', '⅓', '⅔'][r]) || '0';
+}
+function fmtStops(x){
+  const n = Math.round(x * 3);
+  if (n === 0) return '±0';
+  return (n > 0 ? '+' : '−') + stopsAbs(x);
+}
+function fmtEV(x){
+  const s = x >= 0.005 ? '+' : x <= -0.005 ? '−' : '±';
+  return s + Math.abs(x).toFixed(2);
+}
+
+/* ---------- presets ---------- */
+const ISO_P = [50,64,80,100,125,160,200,250,320,400,500,640,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000,12800,16000,20000,25600];
+const SS_P = [30,15,8,4,2,1,1/2,1/4,1/8,1/15,1/24,1/25,1/30,1/40,1/48,1/50,1/60,1/80,1/96,1/100,1/120,1/125,1/160,1/200,1/250,1/320,1/400,1/500,1/640,1/800,1/1000,1/1250,1/1600,1/2000,1/2500,1/3200,1/4000,1/5000,1/6400,1/8000];
+const ANG_P = [11.25,22.5,45,90,120,144,172.8,180,270,360];
+const FPS_P = [23.976,24,25,29.97,30,48,50,59.94,60,100,119.88,120,240];
+const F_P = [0.95,1,1.1,1.2,1.4,1.6,1.8,2,2.2,2.5,2.8,3.2,3.5,4,4.5,5,5.6,6.3,7.1,8,9,10,11,13,14,16,18,20,22];
+
+const P = {
+  iso: ISO_P.map(v => ({ v, label: 'ISO ' + v })),
+  ss: SS_P.map(v => ({ v, label: fmtShutter(v) })),
+  angle: ANG_P.map(v => ({ v, label: trim(v, 2) + '°' })),
+  fps: FPS_P.map(v => ({ v, label: trim(v, 3) + ' fps' })),
+  f: F_P.map(v => ({ v, label: 'F' + trim(v, 2) })),
+};
+const ND = {
+  density: {
+    presets: [0,.3,.6,.9,1.2,1.5,1.8,2.1,2.4,2.7,3].map(v => ({ v, label: v ? `ND ${v.toFixed(1)}（${trim(v / .3, 1)}段）` : 'なし' })),
+    toStops: v => v / 0.3, fromStops: s => s * 0.3, fmt: v => trim(v, 2), unit: 'ND', min: 0,
+  },
+  factor: {
+    presets: [1,2,4,8,16,32,64,128,256,512,1000].map(v => ({ v, label: v === 1 ? 'なし' : `ND${v}（${trim(Math.log2(v), 1)}段）` })),
+    toStops: v => Math.log2(v), fromStops: s => 2 ** s, fmt: v => trim(v, v < 10 ? 1 : 0), unit: 'ND', min: 1,
+  },
+  stops: {
+    presets: [0,1,2,3,4,5,6,7,8,9,10].map(v => ({ v, label: v ? v + '段' : 'なし' })),
+    toStops: v => v, fromStops: s => s, fmt: v => trim(v, 2), unit: '', min: 0,
+  },
+};
+
+const S = { shutterMode: 'speed', ndMode: 'density', base: null };
+const ndLabel = s => {
+  if (!(s > 0.001)) return 'NDなし';
+  const nm = ND[S.ndMode];
+  return S.ndMode === 'stops' ? trim(s, 2) + '段' : 'ND' + (S.ndMode === 'density' ? ' ' : '') + nm.fmt(nm.fromStops(s));
+};
+const presets = k => k === 'nd' ? ND[S.ndMode].presets : P[k];
+const PARSE = { iso: num, ss: parseShutter, angle: num, fps: num, f: num, nd: num };
+const FMT = {
+  iso: v => String(Math.round(v)), ss: fmtShutter, angle: v => trim(v, 2),
+  fps: v => trim(v, 3), f: v => trim(v, 2), nd: v => ND[S.ndMode].fmt(v),
+};
+const LABELS = { iso: 'ISO感度', ss: 'シャッタースピード（秒）', angle: 'シャッター角度（°）', fps: 'フレームレート（fps）', f: '絞り（F値 / T値）', nd: 'NDの濃さ' };
+const UNITS = { f: 'F' };
+
+/* ---------- build fields ---------- */
+document.querySelectorAll('.field').forEach(el => {
+  const k = el.dataset.key;
+  el.innerHTML = `
+    <label class="flabel" for="in-${k}"><span>${LABELS[k]}</span>${k === 'iso' ? '<span class="hint">数値はタップして入力 ／ ⌄ で一覧から選択</span>' : ''}</label>
+    <div class="ctrl">
+      <button type="button" class="step" data-dir="-1" aria-label="${LABELS[k]}を1段階戻す">−</button>
+      <div class="valbox">
+        <svg class="edit-ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M11.2 2.3a1.6 1.6 0 0 1 2.3 0l.2.2a1.6 1.6 0 0 1 0 2.3L6 12.5l-3.3.8.8-3.3 7.7-7.7Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <span class="unit" id="unit-${k}">${UNITS[k] || ''}</span>
+        <input id="in-${k}" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="数値を入力">
+        <select id="sel-${k}" aria-label="${LABELS[k]}を一覧から選ぶ"></select>
+        <span class="pick" aria-hidden="true"></span>
+      </div>
+      <button type="button" class="step" data-dir="1" aria-label="${LABELS[k]}を1段階進める">+</button>
+    </div>
+    <p class="sub" id="sub-${k}"></p>`;
+  fillSelect(k);
+  const inp = el.querySelector('input'), sel = el.querySelector('select');
+  inp.addEventListener('input', render);
+  inp.addEventListener('focus', () => setTimeout(() => inp.select(), 0));
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+  sel.addEventListener('change', () => {
+    const p = presets(k)[+sel.value];
+    if (p) { inp.value = FMT[k](p.v); render(); }
+  });
+  el.querySelector('.valbox').addEventListener('click', e => { if (e.target !== sel && e.target !== inp) inp.focus(); });
+  el.querySelectorAll('.step').forEach(b => b.addEventListener('click', () => step(k, +b.dataset.dir)));
+});
+
+function fillSelect(k){
+  const sel = $('#sel-' + k);
+  sel.innerHTML = '<option value="" disabled>一覧から選ぶ</option>' +
+    presets(k).map((p, i) => `<option value="${i}">${p.label}</option>`).join('');
+  if (k === 'nd') $('#unit-nd').textContent = ND[S.ndMode].unit;
+}
+const val = k => $('#in-' + k).value;
+const setVal = (k, v) => { $('#in-' + k).value = v; };
+
+function step(k, dir){
+  const list = presets(k), cur = PARSE[k](val(k));
+  const lin = k === 'nd';
+  const asc = list[list.length - 1].v > list[0].v;
+  const kv = x => (asc ? 1 : -1) * (lin ? x : Math.log(x));
+  let idx;
+  if (!(isFinite(cur) && (lin || cur > 0))) idx = Math.floor(list.length / 2);
+  else {
+    const c = kv(cur), eps = lin ? 0.001 : 0.005;
+    if (dir > 0) { idx = list.findIndex(p => kv(p.v) > c + eps); if (idx < 0) idx = list.length - 1; }
+    else { idx = -1; list.forEach((p, i) => { if (kv(p.v) < c - eps) idx = i; }); if (idx < 0) idx = 0; }
+  }
+  setVal(k, FMT[k](list[idx].v));
+  render();
+}
+
+/* ---------- mode switches ---------- */
+function setShutterMode(m){
+  if (m === S.shutterMode) return;
+  const r = read();
+  if (m === 'angle' && r.valid.ss && r.valid.fps) setVal('angle', trim(r.t * r.fps * 360, 1));
+  if (m === 'speed' && r.valid.angle && r.valid.fps) setVal('ss', fmtShutter(r.t));
+  S.shutterMode = m;
+  document.querySelectorAll('[data-smode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.smode === m));
+  $('.field[data-key="ss"]').hidden = m !== 'speed';
+  $('.field[data-key="angle"]').hidden = m !== 'angle';
+}
+function setNdMode(m){
+  if (m === S.ndMode) return;
+  const r = read();
+  S.ndMode = m;
+  if (r.valid.nd) setVal('nd', ND[m].fmt(ND[m].fromStops(r.nd)));
+  document.querySelectorAll('[data-ndmode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.ndmode === m));
+  fillSelect('nd');
+}
+document.querySelectorAll('[data-smode]').forEach(b => b.addEventListener('click', () => { setShutterMode(b.dataset.smode); render(); }));
+document.querySelectorAll('[data-ndmode]').forEach(b => b.addEventListener('click', () => { setNdMode(b.dataset.ndmode); render(); }));
+
+/* ---------- read state ---------- */
+function read(){
+  const v = { mode: S.shutterMode }, ok = {};
+  v.iso = num(val('iso')); ok.iso = v.iso > 0;
+  v.fps = num(val('fps')); ok.fps = v.fps > 0;
+  v.N = num(val('f')); ok.f = v.N > 0;
+  const nm = ND[S.ndMode], raw = num(val('nd'));
+  ok.nd = isFinite(raw) && raw >= nm.min;
+  v.nd = ok.nd ? nm.toStops(raw) : NaN;
+  if (v.mode === 'speed') {
+    v.t = parseShutter(val('ss')); ok.ss = v.t > 0;
+    v.ang = ok.ss && ok.fps ? v.t * v.fps * 360 : NaN;
+  } else {
+    v.ang = num(val('angle')); ok.angle = v.ang > 0 && v.ang <= 360;
+    v.t = ok.angle && ok.fps ? v.ang / 360 / v.fps : NaN;
+  }
+  v.ok = ok.iso && ok.f && ok.nd && (v.mode === 'speed' ? ok.ss : ok.angle && ok.fps);
+  v.valid = ok;
+  return v;
+}
+const shutterText = x => x.mode === 'speed' ? fmtShutter(x.t) : `${trim(x.ang, 2)}° / ${trim(x.fps, 3)}fps`;
+
+/* ---------- level indicator ---------- */
+const LV = [];
+(() => {
+  const row = $('#lv-row'), nums = $('#lv-nums');
+  for (let i = -9; i <= 9; i++) {
+    const s = document.createElement('div');
+    s.className = 'lv' + (i === 0 ? ' zero' : i % 3 === 0 ? ' major' : '');
+    row.appendChild(s); LV.push(s);
+    if (i % 3 === 0) {
+      const n = document.createElement('span');
+      n.textContent = i === 0 ? '0' : (i > 0 ? '+' : '−') + Math.abs(i / 3);
+      n.style.left = lvPos(i / 3);
+      nums.appendChild(n);
+    }
+  }
+})();
+function lvPos(stops){ return ((stops * 3 + 9 + 0.5) / 19 * 100) + '%'; }
+function paintLevel(total){
+  const marker = $('#marker');
+  if (total == null) {
+    LV.forEach(s => s.classList.remove('on', 'pos', 'neg'));
+    marker.classList.add('hidden');
+    $('#ov-l').classList.remove('show'); $('#ov-r').classList.remove('show');
+    return;
+  }
+  const q = Math.max(-9, Math.min(9, Math.round(total * 3)));
+  LV.forEach((s, idx) => {
+    const i = idx - 9;
+    const lit = q > 0 ? i > 0 && i <= q : q < 0 ? i < 0 && i >= q : false;
+    s.classList.toggle('on', lit); s.classList.toggle('pos', lit && q > 0); s.classList.toggle('neg', lit && q < 0);
+  });
+  const c = Math.max(-3.15, Math.min(3.15, total));
+  marker.style.left = `calc(14px + (100% - 28px) * ${(c * 3 + 9.5) / 19})`;
+  marker.classList.remove('hidden');
+  $('#ov-l').classList.toggle('show', total < -3.17);
+  $('#ov-r').classList.toggle('show', total > 3.17);
+}
+
+/* ---------- render ---------- */
+function nearest(list, v, lin){
+  let best = list[0], bd = Infinity;
+  list.forEach(p => { const d = lin ? Math.abs(p.v - v) : Math.abs(Math.log(p.v / v)); if (d < bd) { bd = d; best = p; } });
+  return { p: best, exact: lin ? bd < 0.001 : bd < 0.01 };
+}
+function syncSelects(){
+  ['iso', 'ss', 'angle', 'fps', 'f', 'nd'].forEach(k => {
+    const v = PARSE[k](val(k)), list = presets(k);
+    const i = isFinite(v) ? list.findIndex(p => k === 'nd' ? Math.abs(p.v - v) < 0.001 : v > 0 && Math.abs(Math.log(p.v / v)) < 0.005) : -1;
+    $('#sel-' + k).value = i >= 0 ? String(i) : '';
+  });
+}
+function sub(k, text, warn){
+  const el = $('#sub-' + k); el.textContent = text || ''; el.classList.toggle('warn', !!warn);
+}
+function setReadout(precise, third, idle){
+  $('#rd-precise').classList.toggle('idle', idle);
+  $('#rd-third').classList.toggle('idle', idle);
+  $('#rv-ev').innerHTML = `${precise.v}<span class="ru">EV</span>`;
+  $('#rf-ev').textContent = precise.f;
+  $('#rv-third').innerHTML = `${third.v}<span class="ru">段</span>`;
+  $('#rf-third').textContent = third.f;
+}
+
+function render(){
+  const r = read(), ok = r.valid;
+  syncSelects();
+
+  const badKeys = { iso: !ok.iso, f: !ok.f, nd: !ok.nd, fps: !ok.fps, ss: ok.ss === false, angle: ok.angle === false };
+  Object.entries(badKeys).forEach(([k, b]) => $(`.field[data-key="${k}"]`).classList.toggle('bad', b));
+
+  sub('iso', ok.iso ? '' : '正の数値を入力してください', true);
+  sub('f', ok.f ? '' : '正の数値を入力してください', true);
+
+  if (r.mode === 'speed') {
+    if (!ok.ss) sub('ss', '例：50 と入力すると 1/50秒、0.5 で 0.5秒', true);
+    else if (ok.fps && r.t > 1 / r.fps + 1e-9) sub('ss', `フレーム間隔（${fmtShutter(1 / r.fps)}）より長いため、${trim(r.fps, 3)}fps の動画では設定できません`, true);
+    else sub('ss', ok.fps ? `シャッター角度 ${trim(r.ang, 1)}° 相当（${trim(r.fps, 3)}fps）` : '');
+    sub('fps', ok.fps ? 'スピード指定中は露出に影響しません' : '正の数値を入力してください', !ok.fps);
+  } else {
+    const a = num(val('angle'));
+    if (!(a > 0)) sub('angle', '正の数値を入力してください', true);
+    else if (a > 360) sub('angle', '360° 以下で入力してください', true);
+    else sub('angle', ok.fps ? `シャッタースピード ${fmtShutter(r.t)} 秒 相当` : '');
+    sub('fps', ok.fps ? '角度指定中はシャッター時間が変わります' : '正の数値を入力してください', !ok.fps);
+  }
+
+  if (!ok.nd) sub('nd', S.ndMode === 'factor' ? '1 以上の数値を入力してください（ND8 → 8）' : '0 以上の数値を入力してください', true);
+  else if (r.nd < 0.001) sub('nd', 'NDなし');
+  else {
+    const d = 'ND ' + trim(r.nd * 0.3, 2), f = 'ND' + trim(2 ** r.nd, r.nd < 3.3 ? 1 : 0);
+    sub('nd', S.ndMode === 'density' ? `${trim(r.nd, 2)}段分（${f} 相当）`
+            : S.ndMode === 'factor' ? `${trim(r.nd, 2)}段分（${d} 相当）`
+            : `${d} ／ ${f} 相当`);
+  }
+
+  $('#btn-set').disabled = !r.ok;
+  const b = S.base;
+  $('#basechip').classList.toggle('on', !!b);
+
+  if (!b) {
+    $('#state').textContent = '基準未設定';
+    setReadout({ v: '––', f: '小数点2桁' }, { v: '––', f: '端数 ––' }, true);
+    paintLevel(null);
+    $('#baseline').textContent = r.ok ? '設定を入力して SET を押してください' : '入力に誤りがあります';
+    return;
+  }
+
+  $('#baseline').innerHTML = `<span>基準</span><b>ISO ${Math.round(b.iso)}</b><b>${shutterText(b)}</b><b>F${trim(b.N, 2)}</b><b>${ndLabel(b.nd)}</b>`;
+
+  if (!r.ok) {
+    $('#state').textContent = '入力を確認してください';
+    setReadout({ v: 'Err', f: '赤い項目を修正' }, { v: 'Err', f: '端数 ––' }, true);
+    paintLevel(null);
+    $('#breakdown').innerHTML = '<p class="empty">赤く表示された項目を修正すると計算します。</p>';
+    $('#compwrap').hidden = true;
+    return;
+  }
+
+  const dISO = Math.log2(r.iso / b.iso);
+  const dT = Math.log2(r.t / b.t);
+  const dF = 2 * Math.log2(b.N / r.N);
+  const dND = b.nd - r.nd;
+  const total = dISO + dT + dF + dND;
+  const n3 = Math.round(total * 3);
+  const resid = total - n3 / 3;
+
+  $('#state').textContent = n3 === 0 ? '基準と同じ露出' : `基準より ${stopsAbs(total)}段 ${n3 > 0 ? '明るい' : '暗い'}`;
+  setReadout(
+    { v: fmtEV(total), f: Math.abs(total) < 0.005 ? '基準と一致' : `${total > 0 ? '明るい' : '暗い'}方向` },
+    { v: fmtStops(total), f: Math.abs(resid) < 0.005 ? '端数なし' : `端数 ${fmtEV(resid)} EV` },
+    false
+  );
+  paintLevel(total);
+
+  // breakdown
+  const row = (name, from, to, d) => {
+    const cls = Math.round(d * 3) > 0 ? 'b' : Math.round(d * 3) < 0 ? 'd' : '';
+    const w = Math.min(Math.abs(d), 4) / 4 * 50;
+    const pos = d >= 0 ? 'left:50%' : 'right:50%';
+    return `<div class="drow">
+      <span class="dname">${name}</span>
+      <span class="dvals">${from} → ${to}</span>
+      <span class="dd ${cls}">${fmtStops(d)}</span>
+      <div class="dbar"><i class="fill ${cls}" style="${pos};width:${w}%"></i></div>
+    </div>`;
+  };
+  $('#breakdown').innerHTML =
+    row('ISO', Math.round(b.iso), Math.round(r.iso), dISO) +
+    row('シャッター', shutterText(b), shutterText(r), dT) +
+    row('絞り', 'F' + trim(b.N, 2), 'F' + trim(r.N, 2), dF) +
+    row('ND', ndLabel(b.nd), ndLabel(r.nd), dND) +
+    `<div class="total"><span>合計（${fmtEV(total)} EV）</span><span class="dd ${n3 > 0 ? 'b' : n3 < 0 ? 'd' : ''}">${fmtStops(total)}段</span></div>`;
+
+  // compensation
+  const wrap = $('#compwrap');
+  if (Math.abs(total) < 0.02) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const items = [];
+  const nearNote = (list, v, fmt, lin) => { const m = nearest(list, v, lin); return m.exact ? '' : `近い標準値は ${fmt(m.p.v)}`; };
+
+  const isoT = r.iso * 2 ** -total;
+  items.push(['ISO', 'ISO ' + Math.round(isoT), nearNote(P.iso, isoT, v => 'ISO ' + v)]);
+
+  const fT = r.N * 2 ** (total / 2);
+  items.push(['絞り', 'F' + trim(fT, 1), nearNote(P.f, fT, v => 'F' + trim(v, 2))]);
+
+  const ndT = r.nd + total;
+  if (ndT < -0.02) items.push(['ND', '—', `NDを外しても ${stopsAbs(-ndT)}段 足りません`, true]);
+  else {
+    const nm = ND[S.ndMode], raw = nm.fromStops(Math.max(0, ndT));
+    items.push(['ND', ndLabel(Math.max(0, ndT)), nearNote(nm.presets, raw, v => ndLabel(nm.toStops(v)), true)]);
+  }
+
+  if (r.mode === 'speed') {
+    const tT = r.t * 2 ** -total;
+    const over = ok.fps && tT > 1 / r.fps + 1e-9;
+    items.push(['シャッター', fmtShutter(tT), over ? `フレーム間隔（${fmtShutter(1 / r.fps)}）を超えます` : nearNote(P.ss, tT, fmtShutter), over]);
+  } else {
+    const aT = r.ang * 2 ** -total;
+    items.push(['シャッター', trim(aT, 1) + '°', aT > 360 ? '360° を超えるため設定できません' : `${fmtShutter(aT / 360 / r.fps)} 秒 相当`, aT > 360]);
+  }
+  $('#comp').innerHTML = items.map(([n, v, note, warn]) =>
+    `<div class="crow"><span class="dname">${n}</span><span class="cv">${v}</span>${note ? `<span class="cn${warn ? ' warn' : ''}">${note}</span>` : ''}</div>`
+  ).join('');
+}
+
+/* ---------- SET / restore ---------- */
+$('#btn-set').addEventListener('click', () => {
+  const r = read();
+  if (!r.ok) return;
+  S.base = { ...r, ndMode: S.ndMode, raw: {} };
+  ['iso', 'ss', 'angle', 'fps', 'f', 'nd'].forEach(k => S.base.raw[k] = val(k));
+  $('#btn-back').disabled = false;
+  const m = $('#meter');
+  m.classList.remove('flash'); void m.offsetWidth; m.classList.add('flash');
+  render();
+});
+$('#btn-back').addEventListener('click', () => {
+  const b = S.base; if (!b) return;
+  if (S.shutterMode !== b.mode) setShutterMode(b.mode);
+  if (S.ndMode !== b.ndMode) setNdMode(b.ndMode);
+  Object.entries(b.raw).forEach(([k, v]) => setVal(k, v));
+  render();
+});
+
+/* ---------- defaults ---------- */
+setVal('iso', '800'); setVal('ss', '1/50'); setVal('angle', '180');
+setVal('fps', '24'); setVal('f', '4'); setVal('nd', '0');
+render();
+})();
+</script>
+</body>
+</html>
